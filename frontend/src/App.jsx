@@ -8,33 +8,65 @@ import Register from './Register';
 
 export const StateContext = createContext();
 
+export const DEFAULT_ADMIN_PASSWORD = 'admin123';
+
 export default function App() {
+  const getInitialPassword = () => {
+    const saved = localStorage.getItem('superAdminPassword');
+    return saved ? saved.trim() : DEFAULT_ADMIN_PASSWORD;
+  };
+
   const [appState, setAppState] = useState({
     staffStatus: 'Absent',
-    superAdminPassword: '',
+    superAdminPassword: getInitialPassword(),
     registeredCount: 0,
-    currentQrSession: '',
+    currentQrSession: localStorage.getItem('currentQrSession') || 'session-initial',
     dailyLogs: {}
   });
   const [loading, setLoading] = useState(true);
 
+  const updateSuperAdminPassword = (newPassword) => {
+    const trimmed = (newPassword || '').trim();
+    if (!trimmed) return;
+    localStorage.setItem('superAdminPassword', trimmed);
+    setAppState(prev => ({ ...prev, superAdminPassword: trimmed }));
+  };
+
   useEffect(() => {
+    // Safety timeout: Never block user interface for more than 1.2s if Firebase is slow or blocked
+    const timeoutId = setTimeout(() => {
+      setLoading(false);
+    }, 1200);
+
     // 1. Sync System State (Staff Status, QR Session)
     const stateDoc = doc(db, 'system', 'state');
     const unsubState = onSnapshot(stateDoc, (docSnap) => {
+      clearTimeout(timeoutId);
       if (docSnap.exists()) {
         const data = docSnap.data();
+        const activePassword = data.superAdminPassword ? data.superAdminPassword.trim() : getInitialPassword();
+        if (data.superAdminPassword) {
+          localStorage.setItem('superAdminPassword', data.superAdminPassword.trim());
+        }
+        if (data.currentQrSession) {
+          localStorage.setItem('currentQrSession', data.currentQrSession);
+        }
         setAppState(prev => ({
           ...prev,
           staffStatus: data.staffStatus || 'Absent',
-          superAdminPassword: data.superAdminPassword || '',
-          currentQrSession: data.currentQrSession || ''
+          superAdminPassword: activePassword,
+          currentQrSession: data.currentQrSession || prev.currentQrSession
         }));
       }
       setLoading(false);
     }, (err) => {
-      console.warn("Firebase not configured or no access:", err);
-      setLoading(false); // Stop loading even on error so user can see what's wrong
+      clearTimeout(timeoutId);
+      console.warn("Firebase not configured or no access (falling back to local storage):", err);
+      setAppState(prev => ({
+        ...prev,
+        superAdminPassword: prev.superAdminPassword || getInitialPassword()
+      }));
+      setLoading(false); // Stop loading even on error so user can continue
     });
 
     // 2. Sync Registrations for today to get the live count
@@ -54,17 +86,16 @@ export default function App() {
           dailyLogs: newDailyLogs
         };
       });
+    }, (err) => {
+      console.warn("Could not sync live registrations from Firebase:", err);
     });
 
     return () => {
+      clearTimeout(timeoutId);
       unsubState();
       unsubLogs();
     };
   }, []);
-
-  // Helper to fetch logs for a specific date (called by Admin calendar if needed, or we just sync everything)
-  // For simplicity in this demo, let's pre-load all logs or load on demand.
-  // We'll update the Admin to load date logs when clicked.
 
   if (loading) {
     return (
@@ -78,7 +109,7 @@ export default function App() {
   }
 
   return (
-    <StateContext.Provider value={{ appState, setAppState }}>
+    <StateContext.Provider value={{ appState, setAppState, updateSuperAdminPassword, DEFAULT_ADMIN_PASSWORD }}>
       <Router>
         <Routes>
           <Route path="/admin" element={<Admin />} />

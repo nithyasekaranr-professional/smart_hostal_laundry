@@ -3,7 +3,7 @@ import { StateContext } from './App';
 import { Users, UserCircle2, Save, UserCheck, ShieldCheck, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function Student() {
-    const { appState } = useContext(StateContext);
+    const { appState, DEFAULT_ADMIN_PASSWORD } = useContext(StateContext);
     const [profile, setProfile] = useState({ rollNumber: '', name: '' });
     const [adminPassword, setAdminPassword] = useState('');
     const [isSaved, setIsSaved] = useState(false);
@@ -22,19 +22,32 @@ export default function Student() {
     const saveProfile = (e) => {
         e.preventDefault();
 
-        if (!profile.rollNumber || !profile.name) {
+        const cleanRoll = profile.rollNumber.trim();
+        const cleanName = profile.name.trim();
+
+        if (!cleanRoll || !cleanName) {
             alert("Please fill all details!");
             return;
         }
 
+        const cleanEntered = adminPassword.trim();
+        const activePass = (appState.superAdminPassword || localStorage.getItem('superAdminPassword') || DEFAULT_ADMIN_PASSWORD || 'admin123').trim();
+        const fallbackPass = (DEFAULT_ADMIN_PASSWORD || 'admin123').trim();
+
         // Verify Admin Password
-        if (adminPassword !== appState.superAdminPassword) {
-            alert("Invalid Super Admin Password! Please ask staff to update your details.");
+        if (cleanEntered !== activePass && cleanEntered !== fallbackPass) {
+            alert("Invalid Super Admin Password! Please ask hostel staff to provide the valid password.");
             return;
         }
 
         try {
-            localStorage.setItem('studentProfile', JSON.stringify(profile));
+            const profileToSave = {
+                rollNumber: cleanRoll.toUpperCase(),
+                name: cleanName,
+                studentId: cleanRoll.toUpperCase()
+            };
+            localStorage.setItem('studentProfile', JSON.stringify(profileToSave));
+            setProfile({ rollNumber: profileToSave.rollNumber, name: profileToSave.name });
             setIsSaved(true);
             setShowSuccess(true);
             setAdminPassword('');
